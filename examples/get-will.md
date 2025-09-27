@@ -1,6 +1,6 @@
 Get all wills (default limit of 10):
 ```
-curl http://localhost:3000/api/wills
+curl https://eth-global-api.vercel.app/api/wills
 ```
 
 Get wills with custom pagination:

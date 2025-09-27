@@ -91,39 +91,41 @@ app.get('/api/wills', async (req, res) => {
     console.log(`Fetching wills with limit: ${limitNum}, offset: ${offsetNum}${owner ? `, owner: ${owner}` : ''}`)
 
     const wills = []
-    let totalFound = 0
     let tokenId = offsetNum
+    let checkedTokens = 0
+    const maxTokensToCheck = 1000 // Prevent infinite loops
 
     // Iterate through token IDs to find existing wills
     // Note: This is a simple approach. In production, you'd want event indexing
-    while (wills.length < limitNum && tokenId < offsetNum + (limitNum * 10)) {
+    while (wills.length < limitNum && checkedTokens < maxTokensToCheck) {
       try {
-        // Try to get will details for this token ID
-        const willDetails = await contract.getWill(tokenId)
-        
-        // If owner filter is specified, check ownership
-        if (owner) {
-          try {
-            const tokenOwner = await contract.ownerOf(tokenId)
-            if (tokenOwner.toLowerCase() !== (owner as string).toLowerCase()) {
-              tokenId++
-              continue
-            }
-          } catch (ownerError) {
-            // Token doesn't exist or other error
-            tokenId++
-            continue
-          }
+        // First check if the token exists by calling ownerOf
+        let tokenOwner
+        try {
+          tokenOwner = await contract.ownerOf(tokenId)
+        } catch (ownerError) {
+          // Token doesn't exist, skip to next
+          tokenId++
+          checkedTokens++
+          continue
         }
 
-        // Get owner information if not filtering by owner
-        let tokenOwner = null
-        if (!owner) {
-          try {
-            tokenOwner = await contract.ownerOf(tokenId)
-          } catch (ownerError) {
-            tokenOwner = null
-          }
+        // If owner filter is specified, check if this token matches
+        if (owner && tokenOwner.toLowerCase() !== (owner as string).toLowerCase()) {
+          tokenId++
+          checkedTokens++
+          continue
+        }
+
+        // Token exists, now get will details
+        const willDetails = await contract.getWill(tokenId)
+        
+        // Validate that this is actually a will (check if deadline is set and reasonable)
+        const deadline = Number(willDetails[0])
+        if (deadline === 0 || deadline < 1000000000) { // Basic sanity check for timestamp
+          tokenId++
+          checkedTokens++
+          continue
         }
 
         // Format will details
@@ -131,9 +133,9 @@ app.get('/api/wills', async (req, res) => {
           tokenId: tokenId,
           owner: tokenOwner,
           deadline: {
-            timestamp: Number(willDetails[0]),
-            date: new Date(Number(willDetails[0]) * 1000).toISOString(),
-            humanReadable: new Date(Number(willDetails[0]) * 1000).toLocaleString()
+            timestamp: deadline,
+            date: new Date(deadline * 1000).toISOString(),
+            humanReadable: new Date(deadline * 1000).toLocaleString()
           },
           triggered: willDetails[1],
           nominees: willDetails[2],
@@ -144,18 +146,19 @@ app.get('/api/wills', async (req, res) => {
             isActive: !willDetails[1] && !willDetails[5],
             isTriggered: willDetails[1],
             isExecuted: willDetails[5],
-            deadlinePassed: Date.now() > Number(willDetails[0]) * 1000
+            deadlinePassed: Date.now() > deadline * 1000
           }
         }
 
         wills.push(formattedWill)
-        totalFound++
         
       } catch (error) {
         // Token doesn't exist or other error, continue to next
+        console.log(`Error checking token ${tokenId}:`, error.message)
       }
       
       tokenId++
+      checkedTokens++
     }
 
     const response = {
