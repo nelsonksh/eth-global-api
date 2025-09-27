@@ -88,12 +88,17 @@ app.get('/api/wills', async (req, res) => {
     const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL)
     const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider)
 
-    console.log(`Fetching wills with limit: ${limitNum}, offset: ${offsetNum}${owner ? `, owner: ${owner}` : ''}`)
+    console.log(`🔍 Fetching wills with limit: ${limitNum}, offset: ${offsetNum}${owner ? `, owner: ${owner}` : ''}`)
 
     const wills = []
     let tokenId = offsetNum
     let checkedTokens = 0
+    let existingTokens = 0
+    let skippedDueToOwner = 0
+    let invalidWills = 0
     const maxTokensToCheck = 1000 // Prevent infinite loops
+
+    console.log(`📋 Starting search from token ID: ${tokenId}`)
 
     // Iterate through token IDs to find existing wills
     // Note: This is a simple approach. In production, you'd want event indexing
@@ -103,8 +108,11 @@ app.get('/api/wills', async (req, res) => {
         let tokenOwner
         try {
           tokenOwner = await contract.ownerOf(tokenId)
+          existingTokens++
+          console.log(`✅ Token ${tokenId} exists, owner: ${tokenOwner}`)
         } catch (ownerError) {
           // Token doesn't exist, skip to next
+          console.log(`❌ Token ${tokenId} does not exist: ${ownerError.message}`)
           tokenId++
           checkedTokens++
           continue
@@ -112,17 +120,32 @@ app.get('/api/wills', async (req, res) => {
 
         // If owner filter is specified, check if this token matches
         if (owner && tokenOwner.toLowerCase() !== (owner as string).toLowerCase()) {
+          console.log(`🔄 Token ${tokenId} owner ${tokenOwner} doesn't match filter ${owner}, skipping`)
+          skippedDueToOwner++
           tokenId++
           checkedTokens++
           continue
         }
 
         // Token exists, now get will details
+        console.log(`📄 Getting will details for token ${tokenId}`)
         const willDetails = await contract.getWill(tokenId)
         
-        // Validate that this is actually a will (check if deadline is set and reasonable)
         const deadline = Number(willDetails[0])
+        console.log(`🕐 Token ${tokenId} will details:`, {
+          deadline: deadline,
+          deadlineDate: deadline > 0 ? new Date(deadline * 1000).toISOString() : 'Invalid',
+          triggered: willDetails[1],
+          nomineesCount: willDetails[2]?.length || 0,
+          encryptedHash: willDetails[3],
+          decryptedHash: willDetails[4],
+          executed: willDetails[5]
+        })
+        
+        // Validate that this is actually a will (check if deadline is set and reasonable)
         if (deadline === 0 || deadline < 1000000000) { // Basic sanity check for timestamp
+          console.log(`⚠️  Token ${tokenId} has invalid deadline ${deadline}, skipping`)
+          invalidWills++
           tokenId++
           checkedTokens++
           continue
@@ -150,16 +173,24 @@ app.get('/api/wills', async (req, res) => {
           }
         }
 
+        console.log(`✅ Added valid will token ${tokenId} to results`)
         wills.push(formattedWill)
         
       } catch (error) {
         // Token doesn't exist or other error, continue to next
-        console.log(`Error checking token ${tokenId}:`, error.message)
+        console.log(`❌ Error checking token ${tokenId}:`, error.message)
       }
       
       tokenId++
       checkedTokens++
     }
+
+    console.log(`📊 Search completed:`)
+    console.log(`   - Tokens checked: ${checkedTokens}`)
+    console.log(`   - Existing tokens found: ${existingTokens}`)
+    console.log(`   - Skipped due to owner filter: ${skippedDueToOwner}`)
+    console.log(`   - Invalid wills found: ${invalidWills}`)
+    console.log(`   - Valid wills returned: ${wills.length}`)
 
     const response = {
       success: true,
