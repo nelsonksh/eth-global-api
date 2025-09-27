@@ -1,4 +1,5 @@
 import express from 'express'
+import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { ethers } from 'ethers'
@@ -16,7 +17,26 @@ const contractABI = JSON.parse(fs.readFileSync(path.join(__dirname, 'vaultguard-
 
 const app = express()
 
-// Middleware
+// CORS Middleware - Allow all origins
+app.use(cors({
+  origin: '*', // Allow all origins
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
+  credentials: false // Set to false when origin is '*'
+}))
+
+// Alternative CORS setup if you need more control:
+// app.use(cors({
+//   origin: function (origin, callback) {
+//     // Allow all origins
+//     callback(null, true)
+//   },
+//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+//   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
+//   credentials: true
+// }))
+
+// Other middleware
 app.use(express.json())
 
 // Home route - HTML
