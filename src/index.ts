@@ -96,7 +96,7 @@ app.get('/api/wills', async (req, res) => {
     let existingTokens = 0
     let skippedDueToOwner = 0
     let invalidWills = 0
-    const maxTokensToCheck = 1000 // Prevent infinite loops
+    const maxTokensToCheck = 10 // Prevent infinite loops
 
     console.log(`📋 Starting search from token ID: ${tokenId}`)
 
