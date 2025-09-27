@@ -57,6 +57,135 @@ app.get('/api-data', (req, res) => {
   })
 })
 
+// Get all wills endpoint
+app.get('/api/wills', async (req, res) => {
+  try {
+    const { owner, limit = '10', offset = '0' } = req.query
+    
+    // Validate query parameters
+    const limitNum = parseInt(limit as string)
+    const offsetNum = parseInt(offset as string)
+    
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({
+        error: 'Invalid limit. Must be between 1 and 100.'
+      })
+    }
+    
+    if (isNaN(offsetNum) || offsetNum < 0) {
+      return res.status(400).json({
+        error: 'Invalid offset. Must be 0 or greater.'
+      })
+    }
+
+    if (owner && !ethers.isAddress(owner as string)) {
+      return res.status(400).json({
+        error: 'Invalid owner address provided.'
+      })
+    }
+
+    // Create provider and contract instance
+    const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL)
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider)
+
+    console.log(`Fetching wills with limit: ${limitNum}, offset: ${offsetNum}${owner ? `, owner: ${owner}` : ''}`)
+
+    const wills = []
+    let totalFound = 0
+    let tokenId = offsetNum
+
+    // Iterate through token IDs to find existing wills
+    // Note: This is a simple approach. In production, you'd want event indexing
+    while (wills.length < limitNum && tokenId < offsetNum + (limitNum * 10)) {
+      try {
+        // Try to get will details for this token ID
+        const willDetails = await contract.getWill(tokenId)
+        
+        // If owner filter is specified, check ownership
+        if (owner) {
+          try {
+            const tokenOwner = await contract.ownerOf(tokenId)
+            if (tokenOwner.toLowerCase() !== (owner as string).toLowerCase()) {
+              tokenId++
+              continue
+            }
+          } catch (ownerError) {
+            // Token doesn't exist or other error
+            tokenId++
+            continue
+          }
+        }
+
+        // Get owner information if not filtering by owner
+        let tokenOwner = null
+        if (!owner) {
+          try {
+            tokenOwner = await contract.ownerOf(tokenId)
+          } catch (ownerError) {
+            tokenOwner = null
+          }
+        }
+
+        // Format will details
+        const formattedWill = {
+          tokenId: tokenId,
+          owner: tokenOwner,
+          deadline: {
+            timestamp: Number(willDetails[0]),
+            date: new Date(Number(willDetails[0]) * 1000).toISOString(),
+            humanReadable: new Date(Number(willDetails[0]) * 1000).toLocaleString()
+          },
+          triggered: willDetails[1],
+          nominees: willDetails[2],
+          encryptedHash: willDetails[3],
+          decryptedHash: willDetails[4],
+          executed: willDetails[5],
+          status: {
+            isActive: !willDetails[1] && !willDetails[5],
+            isTriggered: willDetails[1],
+            isExecuted: willDetails[5],
+            deadlinePassed: Date.now() > Number(willDetails[0]) * 1000
+          }
+        }
+
+        wills.push(formattedWill)
+        totalFound++
+        
+      } catch (error) {
+        // Token doesn't exist or other error, continue to next
+      }
+      
+      tokenId++
+    }
+
+    const response = {
+      success: true,
+      data: {
+        wills,
+        pagination: {
+          limit: limitNum,
+          offset: offsetNum,
+          count: wills.length,
+          hasMore: wills.length === limitNum // Might have more if we found exactly the limit
+        },
+        filters: {
+          owner: owner || null
+        }
+      },
+      message: `Found ${wills.length} will(s)`
+    }
+
+    res.json(response)
+
+  } catch (error) {
+    console.error('Error fetching wills:', error)
+    res.status(500).json({
+      error: 'Failed to fetch wills from the blockchain',
+      details: error.message
+    })
+  }
+})
+
 // VaultGuard Will Details endpoint
 app.get('/api/will/:tokenId', async (req, res) => {
   try {
@@ -77,9 +206,18 @@ app.get('/api/will/:tokenId', async (req, res) => {
     console.log(`Fetching will details for token ID: ${tokenId}`)
     const willDetails = await contract.getWill(Number(tokenId))
 
+    // Get owner information
+    let owner = null
+    try {
+      owner = await contract.ownerOf(Number(tokenId))
+    } catch (ownerError) {
+      console.warn('Could not fetch owner for token:', tokenId)
+    }
+
     // Format the response
     const formattedWillDetails = {
       tokenId: Number(tokenId),
+      owner: owner,
       deadline: {
         timestamp: Number(willDetails[0]),
         date: new Date(Number(willDetails[0]) * 1000).toISOString(),
