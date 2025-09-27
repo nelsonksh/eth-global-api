@@ -514,6 +514,133 @@ app.post('/api/will/prepare', async (req, res) => {
   }
 })
 
+
+
+// Ping Will endpoint - returns unsigned transaction for client to sign
+app.post('/api/ping', async (req, res) => {
+  try {
+    const { userAddress, tokenId } = req.body
+
+    // Validate required fields
+    if (!userAddress || !ethers.isAddress(userAddress)) {
+      return res.status(400).json({
+        error: 'Valid user address is required'
+      })
+    }
+
+    if (!tokenId || isNaN(Number(tokenId))) {
+      return res.status(400).json({
+        error: 'Valid token ID is required'
+      })
+    }
+
+    // Create provider and get network info
+    const provider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL)
+    const network = await provider.getNetwork()
+    const nonce = await provider.getTransactionCount(userAddress, 'pending')
+    const feeData = await provider.getFeeData()
+    
+    // Verify the will exists and get current details
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, contractABI, provider)
+    
+    try {
+      const willDetails = await contract.getWill(Number(tokenId))
+      const willOwner = await contract.ownerOf(Number(tokenId))
+      
+      // Verify the user owns this will
+      if (willOwner.toLowerCase() !== userAddress.toLowerCase()) {
+        return res.status(403).json({
+          error: 'You do not own this will',
+          details: `Will is owned by ${willOwner}, but request came from ${userAddress}`
+        })
+      }
+
+      // Check if will is already triggered or executed
+      if (willDetails[1]) { // triggered
+        return res.status(400).json({
+          error: 'Cannot ping a triggered will'
+        })
+      }
+
+      if (willDetails[5]) { // executed
+        return res.status(400).json({
+          error: 'Cannot ping an executed will'
+        })
+      }
+
+    } catch (error) {
+      if (error.message.includes('ERC721: invalid token ID')) {
+        return res.status(404).json({
+          error: 'Will not found. The specified token ID does not exist.',
+          tokenId: tokenId
+        })
+      }
+      throw error
+    }
+    
+    // Create contract interface to encode function data
+    const functionData = contract.interface.encodeFunctionData('ping', [Number(tokenId)])
+
+    // Estimate gas limit
+    let gasLimit
+    try {
+      gasLimit = await provider.estimateGas({
+        to: CONTRACT_ADDRESS,
+        data: functionData,
+        from: userAddress
+      })
+      // Add 20% buffer
+      gasLimit = gasLimit * 120n / 100n
+    } catch (error) {
+      console.warn('Gas estimation failed, using default:', error.message)
+      gasLimit = 100000n // Default gas limit for ping
+    }
+
+    const unsignedTransaction = {
+      to: CONTRACT_ADDRESS,
+      data: functionData,
+      nonce: nonce,
+      gasLimit: gasLimit.toString(),
+      maxFeePerGas: feeData.maxFeePerGas?.toString(),
+      maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString(),
+      chainId: Number(network.chainId),
+      type: 2, // EIP-1559 transaction
+      value: "0"
+    }
+
+    const response = {
+      success: true,
+      data: {
+        unsignedTransaction,
+        contractAddress: CONTRACT_ADDRESS,
+        functionName: 'ping',
+        parameters: {
+          tokenId: Number(tokenId)
+        },
+        gasEstimate: {
+          gasLimit: gasLimit.toString(),
+          maxFeePerGas: feeData.maxFeePerGas?.toString(),
+          maxPriorityFeePerGas: feeData.maxPriorityFeePerGas?.toString(),
+          estimatedCostWei: (gasLimit * (feeData.maxFeePerGas || 0n)).toString(),
+          estimatedCostEth: ethers.formatEther(gasLimit * (feeData.maxFeePerGas || 0n))
+        }
+      },
+      message: 'Unsigned ping transaction prepared for client signing'
+    }
+
+    res.json(response)
+
+  } catch (error) {
+    console.error('Error preparing ping transaction:', error)
+    res.status(500).json({
+      error: 'Failed to prepare ping transaction',
+      details: error.message
+    })
+  }
+})
+
+
+
 // Health check
 app.get('/healthz', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() })
