@@ -385,7 +385,7 @@ app.post('/api/will/broadcast', async (req, res) => {
 // Helper endpoint to prepare transaction data for client-side signing
 app.post('/api/will/prepare', async (req, res) => {
   try {
-    const { userAddress, nominees, deadlineDays, encryptedData } = req.body
+    const { userAddress, nominees, deadlineSeconds, encryptedData } = req.body
 
     // Validate required fields
     if (!userAddress || !ethers.isAddress(userAddress)) {
@@ -409,9 +409,9 @@ app.post('/api/will/prepare', async (req, res) => {
       }
     }
 
-    // Set default deadline if not provided (30 days)
-    const daysFromNow = deadlineDays || 30
-    const deadline = Math.floor(Date.now() / 1000) + (daysFromNow * 24 * 60 * 60)
+    // Set default deadline if not provided (30 seconds)
+    const secondsFromNow = deadlineSeconds || (30)
+    const deadline = Math.floor(Date.now() / 1000) + secondsFromNow
 
     // Create encrypted hash
     let encryptedHash
