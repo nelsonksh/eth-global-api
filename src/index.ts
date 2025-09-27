@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename)
 
 // VaultGuard contract configuration
 const CONTRACT_ADDRESS = "0x141fa614e6b3a24e8076777b56e22a447d156884"
-const SEPOLIA_RPC_URL = "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161" // You can use a public RPC or add your own
+const SEPOLIA_RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com"
 
 // Load contract ABI
 const contractABI = JSON.parse(fs.readFileSync(path.join(__dirname, 'vaultguard-abi.json'), 'utf8'))
