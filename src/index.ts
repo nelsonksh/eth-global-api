@@ -80,7 +80,7 @@ app.get('/api-data', (req, res) => {
 // Get all wills endpoint
 app.get('/api/wills', async (req, res) => {
   try {
-    const { owner, limit = '10', offset = '0' } = req.query
+    const { owner, limit = '50', offset = '0' } = req.query
     
     // Validate query parameters
     const limitNum = parseInt(limit as string)
@@ -116,7 +116,7 @@ app.get('/api/wills', async (req, res) => {
     let existingTokens = 0
     let skippedDueToOwner = 0
     let invalidWills = 0
-    const maxTokensToCheck = 10 // Prevent infinite loops
+    const maxTokensToCheck = 50 // Prevent infinite loops
 
     console.log(`📋 Starting search from token ID: ${tokenId}`)
 
